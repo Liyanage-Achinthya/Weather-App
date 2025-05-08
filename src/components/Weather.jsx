@@ -1,103 +1,221 @@
-import React, { useRef, useState } from "react";
+import React, { useRef, useState, useEffect } from "react";
 import "./Weather.css";
 import search_icon from "../assets/search.png";
-import clear_icon from "../assets/clear.png";
-import cloud_icon from "../assets/cloud.png";
-import drizzel_icon from "../assets/drizzle.png";
-import rain_icon from "../assets/rain.png";
-import snow_icon from "../assets/snow.png";
-import wind_icon from "../assets/wind.png";
-import humidity_icon from "../assets/humidity.png";
 
 const Weather = () => {
   const inputRef = useRef();
   const [weatherData, setWeatherData] = useState(false);
+  const [forecastData, setForecastData] = useState([]);
+  const [error, setError] = useState("");
+  const [unit, setUnit] = useState("metric");
+  const [theme, setTheme] = useState("dark");
 
-  const allIcons = {
-    "01d": clear_icon,
-    "01n": clear_icon,
-    "02d": cloud_icon,
-    "02n": cloud_icon,
-    "03d": cloud_icon,
-    "03n": cloud_icon,
-    "04d": drizzel_icon,
-    "04n": drizzel_icon,
-    "09d": rain_icon,
-    "09n": rain_icon,
-    "10d": rain_icon,
-    "10n": rain_icon,
-    "13d": snow_icon,
-    "13n": snow_icon,
+  useEffect(() => {
+    document.documentElement.setAttribute("data-theme", theme);
+  }, [theme]);
+
+  const toggleTheme = () => {
+    setTheme((prev) => (prev === "dark" ? "light" : "dark"));
   };
 
-  const search = async (city) => {
+  const handleToggleUnit = () => {
+    const newUnit = unit === "metric" ? "imperial" : "metric";
+    setUnit(newUnit);
+    if (weatherData?.location) {
+      search(weatherData.location, newUnit);
+    }
+  };
+
+  const formatTime = (timestamp) => {
+    const date = new Date(timestamp * 1000);
+    return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  };
+
+  const search = async (city, customUnit = unit) => {
     if (city === "") {
-      alert("Please enter a city name");
+      setError("⚠️ Please enter a city name.");
+      setWeatherData(false);
+      setForecastData([]);
       return;
     }
+
     try {
-      const url = `https://api.openweathermap.org/data/2.5/weather?q=${city}&units=metric&appid=${
+      const currentUrl = `https://api.openweathermap.org/data/2.5/weather?q=${city}&units=${customUnit}&appid=${
+        import.meta.env.VITE_APP_ID
+      }`;
+      const forecastUrl = `https://api.openweathermap.org/data/2.5/forecast?q=${city}&units=${customUnit}&appid=${
         import.meta.env.VITE_APP_ID
       }`;
 
-      const response = await fetch(url);
-      const data = await response.json();
-      if (!response.ok) {
-        alert(data.message);
+      const [currentRes, forecastRes] = await Promise.all([
+        fetch(currentUrl),
+        fetch(forecastUrl),
+      ]);
+
+      const currentData = await currentRes.json();
+      const forecast = await forecastRes.json();
+
+      if (!currentRes.ok || !forecastRes.ok) {
+        const msg = currentData.message || forecast.message;
+        setError(`❗ ${msg}`);
+        setWeatherData(false);
+        setForecastData([]);
         return;
       }
 
-      console.log(data);
-      const icon = allIcons[data.weather[0].icon] || clear_icon;
+      const icon = `https://openweathermap.org/img/wn/${currentData.weather[0].icon}@2x.png`;
+
       setWeatherData({
-        humidity: data.main.humidity,
-        wind: data.wind.speed,
-        temperature: Math.floor(data.main.temp),
-        location: data.name,
+        humidity: currentData.main.humidity,
+        wind: currentData.wind.speed,
+        temperature: Math.floor(currentData.main.temp),
+        feels_like: Math.floor(currentData.main.feels_like),
+        temp_min: Math.floor(currentData.main.temp_min),
+        temp_max: Math.floor(currentData.main.temp_max),
+        pressure: currentData.main.pressure,
+        description: currentData.weather[0].description,
+        location: currentData.name,
         icon: icon,
+        sunrise: formatTime(currentData.sys.sunrise),
+        sunset: formatTime(currentData.sys.sunset),
       });
-    } catch (error) {
+
+      const dailyForecast = forecast.list
+        .filter((item) => item.dt_txt.includes("12:00:00"))
+        .slice(0, 5);
+
+      setForecastData(dailyForecast);
+      setError("");
+    } catch (err) {
       setWeatherData(false);
-      console.error("Error fetching weather data:", error);
+      setForecastData([]);
+      setError("❗ Failed to fetch weather data. Try again.");
+      console.error("Error fetching weather data:", err);
     }
   };
 
   return (
     <div className="weather">
+      <div
+        style={{
+          alignSelf: "flex-end",
+          display: "flex",
+          gap: "10px",
+          marginBottom: "15px",
+        }}
+      >
+        <button onClick={toggleTheme}>
+          {theme === "dark" ? "☀ Light Mode" : "🌙 Dark Mode"}
+        </button>
+        <button onClick={handleToggleUnit}>
+          {unit === "metric" ? "Show °F" : "Show °C"}
+        </button>
+      </div>
+
       <div className="search-bar">
         <input ref={inputRef} type="text" placeholder="Search" />
         <img
           src={search_icon}
-          alt=""
+          alt="Search"
           onClick={() => search(inputRef.current.value)}
         />
       </div>
-      {weatherData ? (
+
+      {error && <p className="fallback-message">{error}</p>}
+
+      {!error && !weatherData && (
+        <p className="fallback-message">
+          Please enter a city name to view the weather.
+        </p>
+      )}
+
+      {weatherData && (
         <>
-          <img src={weatherData.icon} alt="" className="weather-icon" />
-          <p className="temperature">{weatherData.temperature}°C</p>
+          {/* Current Temperature and Description */}
+          <img
+            src={weatherData.icon}
+            alt="Weather Icon"
+            className="weather-icon"
+          />
+          <p className="temperature">
+            {weatherData.temperature}°{unit === "metric" ? "C" : "F"}
+          </p>
           <p className="location">{weatherData.location}</p>
+          <p className="description">{weatherData.description}</p>
+
+          {/* Forecast Section */}
+          <div className="forecast-section">
+            <h3 style={{ marginTop: "30px" }}>🌤️ 5-Day Forecast</h3>
+            <div className="forecast-scroll">
+              {forecastData.map((item, index) => (
+                <div className="forecast-card" key={index}>
+                  <p>
+                    {new Date(item.dt_txt).toLocaleDateString(undefined, {
+                      weekday: "short",
+                    })}
+                  </p>
+                  <img
+                    src={`https://openweathermap.org/img/wn/${item.weather[0].icon}.png`}
+                    alt={item.weather[0].description}
+                  />
+                  <p>
+                    {Math.round(item.main.temp)}°{unit === "metric" ? "C" : "F"}
+                  </p>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Other Weather Details */}
           <div className="weather-data">
             <div className="col">
-              <img src={humidity_icon} alt="" />
               <div>
                 <p>{weatherData.humidity} %</p>
                 <span>Humidity</span>
               </div>
             </div>
             <div className="col">
-              <img src={wind_icon} alt="" />
               <div>
-                <p>{weatherData.wind} km/h</p>
+                <p>
+                  {weatherData.wind} {unit === "metric" ? "km/h" : "mp/h"}
+                </p>
                 <span>Wind Speed</span>
+              </div>
+            </div>
+            <div className="col">
+              <div>
+                <p>{weatherData.feels_like}°</p>
+                <span>Feels Like</span>
+              </div>
+            </div>
+            <div className="col">
+              <div>
+                <p>
+                  {weatherData.temp_min}° / {weatherData.temp_max}°
+                </p>
+                <span>Min / Max</span>
+              </div>
+            </div>
+            <div className="col">
+              <div>
+                <p>{weatherData.pressure} hPa</p>
+                <span>Pressure</span>
+              </div>
+            </div>
+            <div className="col">
+              <div>
+                <p>{weatherData.sunrise}</p>
+                <span>Sunrise</span>
+              </div>
+            </div>
+            <div className="col">
+              <div>
+                <p>{weatherData.sunset}</p>
+                <span>Sunset</span>
               </div>
             </div>
           </div>
         </>
-      ) : (
-        <p className="fallback-message">
-          Please enter a city name to view the weather.
-        </p>
       )}
     </div>
   );
