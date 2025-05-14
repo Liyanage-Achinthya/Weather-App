@@ -1,4 +1,4 @@
-# 🌤️ React Weather App
+# 🌤️ Weather App
 
 A responsive weather application built with **React + Vite**, using the **OpenWeatherMap API** to show current weather and a 5-day forecast.
 
